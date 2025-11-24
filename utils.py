@@ -8,6 +8,8 @@ import sys
 
 import numpy as np
 import torch
+import torch.optim as optim
+from torch.optim.lr_scheduler import LambdaLR
 
 
 def str_to_bool(val):
@@ -37,79 +39,38 @@ def cosine_annealing(step, total_steps, lr_max, lr_min):
 
 
 def keras_decay(step, decay=0.0001):
-    """Learning rate decay in Keras-style"""
-    return 1. / (1. + decay * step)
-
-
-class SGDRScheduler(torch.optim.lr_scheduler._LRScheduler):
-    """SGD with restarts scheduler"""
-    def __init__(self, optimizer, T0, T_mul, eta_min, last_epoch=-1):
-        self.Ti = T0
-        self.T_mul = T_mul
-        self.eta_min = eta_min
-
-        self.last_restart = 0
-
-        super().__init__(optimizer, last_epoch)
-
-    def get_lr(self):
-        T_cur = self.last_epoch - self.last_restart
-        if T_cur >= self.Ti:
-            self.last_restart = self.last_epoch
-            self.Ti = self.Ti * self.T_mul
-            T_cur = 0
-
-        return [
-            self.eta_min + (base_lr - self.eta_min) *
-            (1 + np.cos(np.pi * T_cur / self.Ti)) / 2
-            for base_lr in self.base_lrs
-        ]
+    """Learning rate decay in Keras style"""
+    return 1.0 / (1.0 + decay * step)
 
 
 def _get_optimizer(model_parameters, optim_config):
-    """Defines optimizer according to the given config"""
-    optimizer_name = optim_config['optimizer']
-
-    if optimizer_name == 'sgd':
-        optimizer = torch.optim.SGD(model_parameters,
-                                    lr=optim_config['base_lr'],
-                                    momentum=optim_config['momentum'],
-                                    weight_decay=optim_config['weight_decay'],
-                                    nesterov=optim_config['nesterov'])
-    elif optimizer_name == 'adam':
-        optimizer = torch.optim.Adam(model_parameters,
-                                     lr=optim_config['base_lr'],
-                                     betas=optim_config['betas'],
-                                     weight_decay=optim_config['weight_decay'],
-                                     amsgrad=str_to_bool(
-                                         optim_config['amsgrad']))
+    """Defines an optimizer"""
+    if optim_config['optimizer'] == 'Adam':
+        optimizer = optim.Adam(model_parameters,
+                               lr=optim_config['base_lr'],
+                               weight_decay=optim_config['weight_decay'])
+    elif optim_config['optimizer'] == 'AdamW':
+        optimizer = optim.AdamW(model_parameters,
+                                lr=optim_config['base_lr'],
+                                weight_decay=optim_config['weight_decay'])
+    elif optim_config['optimizer'] == 'SGD':
+        optimizer = optim.SGD(model_parameters,
+                              lr=optim_config['base_lr'],
+                              momentum=optim_config['momentum'],
+                              weight_decay=optim_config['weight_decay'])
     else:
-        print('Un-known optimizer', optimizer_name)
-        sys.exit()
+        raise ValueError('optimizer error, got:{}'.format(
+            optim_config['optimizer']))
 
     return optimizer
 
 
 def _get_scheduler(optimizer, optim_config):
-    """
-    Defines learning rate scheduler according to the given config
-    """
-    if optim_config['scheduler'] == 'multistep':
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer,
-            milestones=optim_config['milestones'],
-            gamma=optim_config['lr_decay'])
-
-    elif optim_config['scheduler'] == 'sgdr':
-        scheduler = SGDRScheduler(optimizer, optim_config['T0'],
-                                  optim_config['Tmult'],
-                                  optim_config['lr_min'])
-
-    elif optim_config['scheduler'] == 'cosine':
-        total_steps = optim_config['epochs'] * \
-            optim_config['steps_per_epoch']
-
-        scheduler = torch.optim.lr_scheduler.LambdaLR(
+    """Defines a scheduler"""
+    if optim_config['scheduler'] == 'cosine':
+        # epochs * steps_per_epoch -> total_steps
+        total_steps = optim_config['epochs'] * optim_config['steps_per_epoch']
+        scheduler = LambdaLR(
             optimizer,
             lr_lambda=lambda step: cosine_annealing(
                 step,
@@ -153,5 +114,3 @@ def set_seed(seed, config = None):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = str_to_bool(config["cudnn_deterministic_toggle"])
-        torch.backends.cudnn.benchmark = str_to_bool(config["cudnn_benchmark_toggle"])
