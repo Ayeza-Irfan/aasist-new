@@ -349,6 +349,13 @@ class Model(nn.Module):
 
 
     def forward(self, x, Freq_aug=False):
+
+        if x.dim() == 2:
+            # (B, L) -> (B, 1, 1, L)
+            x = x.unsqueeze(1).unsqueeze(2)
+        elif x.dim() == 3:
+            # (B, T, F) -> (B, 1, T, F)
+            x = x.unsqueeze(1)
         # --------------------------------------------------
         # FRONTEND
         # --------------------------------------------------
@@ -368,6 +375,7 @@ class Model(nn.Module):
 
         # Mean over time → Spectral graph
         x_S = torch.mean(x, dim=2)  # (B, C, F)
+        x_S = x_S.transpose(1, 2)
         x_S = x_S + self.pos_S      # (B, 23, C)
 
         # --------------------------------------------------
