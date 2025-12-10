@@ -177,7 +177,9 @@ class HtrgGraphAttentionLayer(nn.Module):
 class CONV(nn.Module):
     def __init__(self, out_channels, kernel_size):
         super().__init__()
-        self.conv = nn.Conv2d(1, out_channels, kernel_size=kernel_size)
+        
+        ks = kernel_size if isinstance(kernel_size, tuple) else (1, kernel_size)
+        self.conv = nn.Conv2d(1, out_channels, kernel_size=ks)
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.SiLU()
 
@@ -323,11 +325,11 @@ class Model(nn.Module):
         # --------------------------------------------------
         # Attentive Statistics Pooling
         # --------------------------------------------------
-        fused_gat_dim = gat_dims[-1]
-        self.asp = AttentiveStatsPool(fused_gat_dim, bottleneck_dim=128)
+        fused_feat_dim = 2 * gat_dims[-1]
+        self.asp = AttentiveStatsPool(fused_feat_dim, bottleneck_dim=128)
 
         # ASP output dimension = mean + std → 2 * fused_gat_dim
-        asp_out_dim = 2 * fused_gat_dim
+        asp_out_dim = 2 * fused_feat_dim
 
         # --------------------------------------------------
         # Dense Layers (Your 5-layer MLP) — NOW USING GELU
@@ -346,7 +348,7 @@ class Model(nn.Module):
 
 
 
-    def forward(self, x):
+    def forward(self, x, Freq_aug=False):
         # --------------------------------------------------
         # FRONTEND
         # --------------------------------------------------
@@ -409,9 +411,9 @@ class Model(nn.Module):
         y = self.gelu(self.fc4(y))
         y = self.gelu(self.fc5(y))
 
-        y = self.fc6(y)
-        y = self.sigmoid(y)
-
-        return y
+       
+        logits = self.fc6(y)
+        probs = self.sigmoid(logits)
+        return logits, probs
 
 
